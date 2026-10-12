@@ -26,7 +26,7 @@ repositories.
 ## Platform quick start
 
 ```
-cd platform && make up LOCAL_SKD=true
+cd platform && make up LOCAL_SDK=true
 ```
 
 Needed prerequisites are Docker, python, make.

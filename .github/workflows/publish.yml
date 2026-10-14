@@ -31,7 +31,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/devel' ||
       github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-slim
     outputs:
       sha: ${{ steps.meta.outputs.sha }}
       tag: ${{ steps.meta.outputs.tag }}
@@ -55,7 +55,6 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "Publishing $tag ($sha)" >> "$GITHUB_STEP_SUMMARY"
 
   sdk:
     name: "sdk ${{ needs.meta.outputs.tag }}"
@@ -108,3 +107,45 @@ jobs:
       file: platform/frontend/Dockerfile
       target: prod
       build-contexts: certs=platform/certs
+
+  summary:
+    name: "summary"
+    # Also report which images failed, as long as there was a tag to publish
+    if: ${{ always() && needs.meta.result == 'success' }}
+    needs: [meta, sdk, backend, frontend]
+    runs-on: ubuntu-slim
+    steps:
+      - name: Write summary
+        env:
+          PREFIX: ${{ needs.meta.outputs.prefix }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          SDK_RESULT: ${{ needs.sdk.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+        run: |
+          status() {
+            case "$1" in
+              success) echo "✅ published" ;;
+              skipped) echo "⏭️ skipped" ;;
+              cancelled) echo "⚪ cancelled" ;;
+              *) echo "❌ $1" ;;
+            esac
+          }
+          # Packages are linked to the repo by the image's source annotation, and
+          # the package name is the image path after the owner, slash encoded
+          repo_name="${PREFIX#ghcr.io/*/}"
+          row() {
+            local image="$PREFIX/prometheus_$1-devel:$TAG"
+            local package_url="$REPO_URL/pkgs/container/$repo_name%2Fprometheus_$1-devel"
+            echo "| $1 | [\`$image\`]($package_url) | $(status "$2") |"
+          }
+          {
+            echo "## Published images \`$TAG\`"
+            echo
+            echo "| Image | Reference | Status |"
+            echo "|---|---|---|"
+            row sdk "$SDK_RESULT"
+            row backend "$BACKEND_RESULT"
+            row frontend "$FRONTEND_RESULT"
+          } >> "$GITHUB_STEP_SUMMARY"

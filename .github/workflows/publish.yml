@@ -1,4 +1,10 @@
-name: publish
+name: publish-images
+# The tag isn't known until the meta job runs, so the title names the test run
+# that triggered this one and the tag goes in the job names
+run-name: >-
+  ${{ github.event.workflow_run.display_title
+  && format('Publish images: {0}', github.event.workflow_run.display_title)
+  || format('Publish images {0}', github.ref_name) }}
 
 # Publishes the devel images to ghcr.io after the test workflow passes on a
 # push to devel. Tags are <commit date>-<7 char sha>, e.g. 20261014-ea90a3d.
@@ -52,7 +58,7 @@ jobs:
           echo "Publishing $tag ($sha)" >> "$GITHUB_STEP_SUMMARY"
 
   sdk:
-    name: "sdk"
+    name: "sdk ${{ needs.meta.outputs.tag }}"
     needs: meta
     permissions:
       contents: read
@@ -67,7 +73,7 @@ jobs:
       file: sdk/Dockerfile
 
   backend:
-    name: "backend"
+    name: "backend ${{ needs.meta.outputs.tag }}"
     # Built on the sdk image from the same commit
     needs: [meta, sdk]
     permissions:
@@ -86,7 +92,7 @@ jobs:
         PROMETHEUS_API_BASE_IMAGE_HASH=${{ needs.meta.outputs.tag }}
 
   frontend:
-    name: "frontend"
+    name: "frontend ${{ needs.meta.outputs.tag }}"
     needs: meta
     permissions:
       contents: read

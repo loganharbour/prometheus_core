@@ -167,6 +167,49 @@ def test_nothing_found_prints_one_install_command(tmp_path, bin_dir):
     assert "brew" not in done.stderr and "apt" not in done.stderr
 
 
+def test_a_refusal_with_json_is_the_usual_error_object_on_stdout(tmp_path, bin_dir):
+    """`--json` and no Python: one JSON object with `ok: false`, written by the shim itself, and nothing on stderr."""
+    import json
+
+    skip_if_homebrew_python()
+    done = run(tmp_path, [bin_dir], "doctor", "--json")
+    body = json.loads(done.stdout)
+    assert done.returncode == 1 and done.stderr == ""
+    assert (body["schema_version"], body["ok"], body["error"]["code"]) == (1, False, "config_invalid")
+    assert "needs Python 3.10 or newer" in body["error"]["message"] and "uv" in body["error"]["hint"]
+    assert body["platform"]["root"] == str(SHIM.parent)
+
+
+def test_a_bad_platformctl_python_with_json_is_the_usual_error_object(tmp_path, bin_dir):
+    """The same for a `PLATFORMCTL_PYTHON` that is too old, and the old plain text without `--json`."""
+    import json
+
+    old = python_stub(tmp_path, "old", (3, 9))
+    done = run(tmp_path, [bin_dir], "--json", "doctor", env_extra={"PLATFORMCTL_PYTHON": str(old)})
+    body = json.loads(done.stdout)
+    assert done.returncode == 1 and done.stderr == "" and body["ok"] is False
+    assert "PLATFORMCTL_PYTHON is not a Python 3.10 or newer" in body["error"]["message"]
+
+
+def test_json_after_a_double_dash_is_not_the_tools_flag(tmp_path, bin_dir):
+    """`compose -- --json` hands `--json` to Compose, so the shim's refusal stays plain text."""
+    old = python_stub(tmp_path, "old", (3, 9))
+    done = run(tmp_path, [bin_dir], "compose", "--", "--json", env_extra={"PLATFORMCTL_PYTHON": str(old)})
+    assert done.returncode == 1 and done.stdout == "" and "is not a Python 3.10 or newer" in done.stderr
+
+
+def test_the_json_in_a_refusal_survives_an_awkward_folder(tmp_path, bin_dir):
+    """A quote or backslash in the shim's folder is escaped, so the object is still valid JSON."""
+    import json
+
+    awkward = tmp_path / 'we"ird\\dir'
+    awkward.mkdir()
+    shutil.copy(SHIM, awkward / "platformctl")
+    old = python_stub(tmp_path, "old", (3, 9))
+    done = run(tmp_path, [bin_dir], "--json", shim=awkward / "platformctl", env_extra={"PLATFORMCTL_PYTHON": str(old)})
+    assert json.loads(done.stdout)["platform"]["root"] == str(awkward)
+
+
 def test_the_arguments_are_passed_through_untouched(tmp_path, bin_dir):
     """The arguments are passed through untouched."""
     python_stub(bin_dir, "python3.12", (3, 12))
